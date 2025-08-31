@@ -1,7 +1,7 @@
 document.addEventListener('DOMContentLoaded', () => {
     let sudokuSolution = [];
 
-    // Set up the scene, camera, and renderer
+    // Scene / camera / renderer
     const scene = new THREE.Scene();
     const camera = new THREE.PerspectiveCamera(35, (window.innerWidth * 0.7) / window.innerHeight, 0.01, 100);
     camera.position.set(0, 3, 1.5);
@@ -11,15 +11,15 @@ document.addEventListener('DOMContentLoaded', () => {
     const renderer = new THREE.WebGLRenderer({ antialias: true });
     renderer.setSize(window.innerWidth * 0.7, window.innerHeight);
     document.body.appendChild(renderer.domElement);
-    
-    // Lighting
+
+    // Lights
     const ambientLight = new THREE.AmbientLight(0xffffff, 1);
     scene.add(ambientLight);
     const directionalLight = new THREE.DirectionalLight(0xffffff, 0.1);
-    directionalLight.position.set(15, 25, 15);  // Moved light further back
+    directionalLight.position.set(15, 25, 15);
     scene.add(directionalLight);
 
-    // Set up groups
+    // Groups and loader
     const loader = new THREE.GLTFLoader();
     const cellsGroup = new THREE.Group();
     const bordersGroup = new THREE.Group();
@@ -27,43 +27,63 @@ document.addEventListener('DOMContentLoaded', () => {
     const notesGroup = new THREE.Group();
     const decorativeGroup = new THREE.Group();
 
-    // Get the scaling factor based on screen size
-    const scaleFactor = window.innerWidth < 768 ? 6.5 : 5;  // Larger scale for mobile
-
-    // Scale all groups
+    const scaleFactor = window.innerWidth < 768 ? 6.5 : 5;
     cellsGroup.scale.set(scaleFactor, scaleFactor, scaleFactor);
     bordersGroup.scale.set(scaleFactor, scaleFactor, scaleFactor);
     numbersGroup.scale.set(scaleFactor, scaleFactor, scaleFactor);
     notesGroup.scale.set(scaleFactor, scaleFactor, scaleFactor);
-    decorativeGroup.scale.set(scaleFactor * 0.3, scaleFactor * 0.3, scaleFactor * 0.3); // Smaller scale for golf ball
-    
-    // Add groups to scene
-    scene.add(cellsGroup);
-    scene.add(bordersGroup);
-    scene.add(numbersGroup);
-    scene.add(notesGroup);
-    scene.add(decorativeGroup);
+    decorativeGroup.scale.set(scaleFactor * 0.3, scaleFactor * 0.3, scaleFactor * 0.3);
 
-    // Constants for colors
-    const COLORS = {
-        DEFAULT_CELL: 0xFFFFFF,
-        SELECTED_CELL: 0xFF8C00,  // Dark orange
-        RELATED_CELL: 0xFFFF00,   // Original yellow
-        GIVEN_NUMBER: 0x8B0000,   // Dark red
-        PLAYER_NUMBER: 0x000000,  // Black
-        GIVEN_CELL: 0xD3D3D3
+    scene.add(cellsGroup, bordersGroup, numbersGroup, notesGroup, decorativeGroup);
+
+    // ========= Pastel subgrid styles (cell background colors only) =========
+    // For each subgrid (1..9), define a pastel base color and a slightly darker shade used for GIVEN cells.
+    // Numbers DO NOT use these; given numbers stay red, player numbers stay black.
+    const SUBGRID_STYLES = {
+        1: { cell: 0xFFD1E8, givenCell: 0xFFA7C8 }, // baby pink
+        2: { cell: 0xFFD8B3, givenCell: 0xFFB67F }, // peach
+        3: { cell: 0xFFF4B3, givenCell: 0xFFE066 }, // pastel yellow
+        4: { cell: 0xCFFFE5, givenCell: 0x9DE8C7 }, // mint
+        5: { cell: 0xB3E5FF, givenCell: 0x7FCFFF }, // baby blue
+        6: { cell: 0xE2D6FF, givenCell: 0xC8B5FF }, // lavender
+        7: { cell: 0xD7F8B7, givenCell: 0xA8E57F }, // pastel green
+        8: { cell: 0xFFC8C2, givenCell: 0xFFA39A }, // coral
+        9: { cell: 0xC6F3F6, givenCell: 0x95E3E8 }, // light teal
     };
 
-    // Camera controls
+    function getBaseCellColorFor(subgrid, isGiven) {
+        const style = SUBGRID_STYLES[subgrid];
+        if (style) return isGiven ? style.givenCell : style.cell;
+        return isGiven ? COLORS.GIVEN_CELL : COLORS.DEFAULT_CELL;
+    }
+    // Numbers: keep original palette (given = red, player = black), regardless of subgrid.
+    function getNumberColor(isGiven) {
+        return isGiven ? COLORS.GIVEN_NUMBER : COLORS.PLAYER_NUMBER;
+    }
+    // ======================================================================
+
+    // Core palette (unchanged)
+    const COLORS = {
+        DEFAULT_CELL: 0xFFFFFF,
+        SELECTED_CELL: 0xFF8C00,
+        RELATED_CELL: 0xFFFF00,
+        GIVEN_NUMBER: 0x8B0000,  // red for givens
+        PLAYER_NUMBER: 0x000000, // black for player inputs
+        GIVEN_CELL: 0xD3D3D3     // only used if a subgrid style is missing
+    };
+
+    // Controls
     const controls = new THREE.TrackballControls(camera, renderer.domElement);
     controls.rotateSpeed = 5.0;
     controls.dynamicDampingFactor = 0.3;
     controls.noZoom = true;
     controls.noPan = true;
-    controls.target.set(0, 0, 0);  // Adjusted to match camera lookAt
+    controls.target.set(0, 0, 0);
     controls.update();
+    window.camera = camera;
+    window.controls = controls;
 
-    // Game state variables
+    // Game state
     let selectedCell = null;
     let currentInputMode = "numbers";
     let currentDifficulty = 'Beginner';
@@ -71,6 +91,7 @@ document.addEventListener('DOMContentLoaded', () => {
     let timerInterval = null;
     let gameStartTime = null;
     let gameInProgress = false;
+
     const editableCells = new Set();
     const displayedNumbers = {};
     let sudokuGrid = Array(9).fill().map(() => Array(9).fill(null));
@@ -81,7 +102,7 @@ document.addEventListener('DOMContentLoaded', () => {
         achievements: []
     };
 
-    // Create modern game header
+    // Header UI
     const gameHeader = document.createElement('div');
     gameHeader.className = 'game-header';
     gameHeader.innerHTML = `
@@ -95,122 +116,70 @@ document.addEventListener('DOMContentLoaded', () => {
     `;
     document.body.appendChild(gameHeader);
 
-    // Create floating action button for new game
+    // New game FAB
     const fab = document.createElement('button');
     fab.className = 'fab';
     fab.innerHTML = '🎲';
     fab.title = 'New Game';
     document.body.appendChild(fab);
 
-    // UI Setup with new layout
+    // Control panel
     const controlPanel = document.createElement('div');
     controlPanel.className = 'control-panel';
     document.body.appendChild(controlPanel);
 
-    // Create number pad container
+    // Number pad
     const numberPad = document.createElement('div');
     numberPad.className = 'number-pad';
     controlPanel.appendChild(numberPad);
-
-    // Number buttons
     for (let i = 1; i <= 9; i++) {
         const button = document.createElement('button');
         button.innerText = i;
-        button.addEventListener('click', () => {
-            if (selectedCell) {
-                inputNumber(i);
-            }
-        });
-        // Add touch event listener for mobile
-        button.addEventListener('touchstart', (e) => {
-            e.preventDefault();
-            if (selectedCell) {
-                inputNumber(i);
-            }
-        }, { passive: false });
+        button.addEventListener('click', () => { if (selectedCell) inputNumber(i); });
+        button.addEventListener('touchstart', (e) => { e.preventDefault(); if (selectedCell) inputNumber(i); }, { passive: false });
         numberPad.appendChild(button);
     }
 
-    // Create utility buttons container
+    // Utility buttons
     const utilityButtons = document.createElement('div');
     utilityButtons.className = 'utility-buttons';
     controlPanel.appendChild(utilityButtons);
 
-    // Mode toggle button
     const modeToggle = document.createElement('button');
     modeToggle.innerText = "Toggle: Numbers";
-    modeToggle.addEventListener('click', () => {
+    function toggleMode() {
         currentInputMode = currentInputMode === "numbers" ? "additionalNumbers" : "numbers";
         modeToggle.innerText = `Toggle: ${currentInputMode === "numbers" ? "Numbers" : "Additional Numbers"}`;
-    });
-    modeToggle.addEventListener('touchstart', (e) => {
-        e.preventDefault();
-        currentInputMode = currentInputMode === "numbers" ? "additionalNumbers" : "numbers";
-        modeToggle.innerText = `Toggle: ${currentInputMode === "numbers" ? "Numbers" : "Additional Numbers"}`;
-    }, { passive: false });
+    }
+    modeToggle.addEventListener('click', toggleMode);
+    modeToggle.addEventListener('touchstart', (e)=>{e.preventDefault(); toggleMode();},{passive:false});
     utilityButtons.appendChild(modeToggle);
 
-    // Erase button
     const eraseButton = document.createElement('button');
     eraseButton.innerText = "Erase";
-    eraseButton.addEventListener('click', () => {
-        if (selectedCell) {
-            eraseCell(selectedCell.cellName);
-        }
-    });
-    eraseButton.addEventListener('touchstart', (e) => {
-        e.preventDefault();
-        if (selectedCell) {
-            eraseCell(selectedCell.cellName);
-        }
-    }, { passive: false });
+    function doErase() { if (selectedCell) eraseCell(selectedCell.cellName); }
+    eraseButton.addEventListener('click', doErase);
+    eraseButton.addEventListener('touchstart', (e)=>{e.preventDefault(); doErase();},{passive:false});
     utilityButtons.appendChild(eraseButton);
-    // Helper Functions
+
+    // ----- Sudoku helpers -----
     function checkSolution() {
-        // Check if puzzle is complete (no empty cells)
-        for (let row = 0; row < 9; row++) {
-            for (let col = 0; col < 9; col++) {
-                if (!sudokuGrid[row][col]) {
-                    return false;
-                }
-            }
-        }
-
-        // Compare with solution
-        for (let row = 0; row < 9; row++) {
-            for (let col = 0; col < 9; col++) {
-                if (sudokuGrid[row][col] !== sudokuSolution[row][col]) {
-                    return false;
-                }
-            }
-        }
-
+        for (let r = 0; r < 9; r++) for (let c = 0; c < 9; c++) if (!sudokuGrid[r][c]) return false;
+        for (let r = 0; r < 9; r++) for (let c = 0; c < 9; c++) if (sudokuGrid[r][c] !== sudokuSolution[r][c]) return false;
         return true;
     }
 
     function isValidSudokuMove(grid, row, col, num) {
-        for (let x = 0; x < 9; x++) {
-            if (x !== col && grid[row][x] === num) return false;
-        }
-        
-        for (let x = 0; x < 9; x++) {
-            if (x !== row && grid[x][col] === num) return false;
-        }
-        
-        const startRow = Math.floor(row / 3) * 3;
-        const startCol = Math.floor(col / 3) * 3;
-        for (let i = 0; i < 3; i++) {
-            for (let j = 0; j < 3; j++) {
-                const checkRow = startRow + i;
-                const checkCol = startCol + j;
-                if ((checkRow !== row || checkCol !== col) && grid[checkRow][checkCol] === num) {
-                    return false;
-                }
-            }
+        for (let x = 0; x < 9; x++) if (x !== col && grid[row][x] === num) return false;
+        for (let x = 0; x < 9; x++) if (x !== row && grid[x][col] === num) return false;
+        const sr = Math.floor(row / 3) * 3, sc = Math.floor(col / 3) * 3;
+        for (let i = 0; i < 3; i++) for (let j = 0; j < 3; j++) {
+            const rr = sr + i, cc = sc + j;
+            if ((rr !== row || cc !== col) && grid[rr][cc] === num) return false;
         }
         return true;
     }
-    
+
     function generatePuzzle(difficulty = 'Beginner') {
         const difficultySettings = {
             'Beginner': { minClues: 45, maxClues: 50 },
@@ -218,64 +187,39 @@ document.addEventListener('DOMContentLoaded', () => {
             'Expert': { minClues: 25, maxClues: 34 },
             'Master': { minClues: 17, maxClues: 24 }
         };
-        
         const { minClues, maxClues } = difficultySettings[difficulty];
-        
         const solution = generateValidCompleteSolution();
-        
-        // Create puzzle by removing numbers
         const puzzle = solution.map(row => [...row]);
         const targetClues = minClues + Math.floor(Math.random() * (maxClues - minClues + 1));
         const cellsToRemove = 81 - targetClues;
-        
+
         const positions = [];
-        for (let row = 0; row < 9; row++) {
-            for (let col = 0; col < 9; col++) {
-                positions.push([row, col]);
-            }
-        }
-        
-        for (let i = positions.length - 1; i > 0; i--) {
-            const j = Math.floor(Math.random() * (i + 1));
-            [positions[i], positions[j]] = [positions[j], positions[i]];
-        }
-        
-        // Remove cells
-        for (let i = 0; i < cellsToRemove && i < positions.length; i++) {
-            const [row, col] = positions[i];
-            puzzle[row][col] = 0;
-        }
-        
-        return { 
-            sudokuBoard: puzzle, 
-            sudokuSolution: solution,
-            rating: (maxClues - targetClues) / (maxClues - minClues) * 4
-        };
+        for (let r = 0; r < 9; r++) for (let c = 0; c < 9; c++) positions.push([r, c]);
+        for (let i = positions.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [positions[i], positions[j]] = [positions[j], positions[i]]; }
+        for (let i = 0; i < cellsToRemove && i < positions.length; i++) { const [r, c] = positions[i]; puzzle[r][c] = 0; }
+
+        return { sudokuBoard: puzzle, sudokuSolution: solution, rating: (maxClues - targetClues) / (maxClues - minClues) * 4 };
     }
-    
+
     function convertToGrid(flatArray) {
         const grid = [];
-        for (let i = 0; i < 9; i++) {
-            grid.push(flatArray.slice(i * 9, (i + 1) * 9).map(cell => cell === null ? 0 : cell));
-        }
+        for (let i = 0; i < 9; i++) grid.push(flatArray.slice(i * 9, (i + 1) * 9).map(v => v === null ? 0 : v));
         return grid;
     }
 
     function generateValidCompleteSolution() {
         const baseSolution = [
-            [5, 3, 4, 6, 7, 8, 9, 1, 2],
-            [6, 7, 2, 1, 9, 5, 3, 4, 8],
-            [1, 9, 8, 3, 4, 2, 5, 6, 7],
-            [8, 5, 9, 7, 6, 1, 4, 2, 3],
-            [4, 2, 6, 8, 5, 3, 7, 9, 1],
-            [7, 1, 3, 9, 2, 4, 8, 5, 6],
-            [9, 6, 1, 5, 3, 7, 2, 8, 4],
-            [2, 8, 7, 4, 1, 9, 6, 3, 5],
-            [3, 4, 5, 2, 8, 6, 1, 7, 9]
+            [5,3,4,6,7,8,9,1,2],
+            [6,7,2,1,9,5,3,4,8],
+            [1,9,8,3,4,2,5,6,7],
+            [8,5,9,7,6,1,4,2,3],
+            [4,2,6,8,5,3,7,9,1],
+            [7,1,3,9,2,4,8,5,6],
+            [9,6,1,5,3,7,2,8,4],
+            [2,8,7,4,1,9,6,3,5],
+            [3,4,5,2,8,6,1,7,9]
         ];
-        
         const solution = baseSolution.map(row => [...row]);
-        
         for (let block = 0; block < 3; block++) {
             if (Math.random() < 0.5) {
                 const row1 = block * 3 + Math.floor(Math.random() * 3);
@@ -283,7 +227,6 @@ document.addEventListener('DOMContentLoaded', () => {
                 [solution[row1], solution[row2]] = [solution[row2], solution[row1]];
             }
         }
-        
         return solution;
     }
 
@@ -294,41 +237,25 @@ document.addEventListener('DOMContentLoaded', () => {
             timerInterval = setInterval(updateTimer, 1000);
         }
     }
-
-    function stopTimer() {
-        if (timerInterval) {
-            clearInterval(timerInterval);
-            timerInterval = null;
-        }
-        gameInProgress = false;
-    }
-
+    function stopTimer() { if (timerInterval) { clearInterval(timerInterval); timerInterval = null; } gameInProgress = false; }
     function updateTimer() {
         if (gameStartTime) {
             gameTimer = Math.floor((Date.now() - gameStartTime) / 1000);
             document.querySelector('.timer-display').textContent = formatTime(gameTimer);
         }
     }
-
-    function formatTime(seconds) {
-        const mins = Math.floor(seconds / 60);
-        const secs = seconds % 60;
-        return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
-    }
+    function formatTime(s) { const m = Math.floor(s / 60), sec = s % 60; return `${m.toString().padStart(2,'0')}:${sec.toString().padStart(2,'0')}`; }
 
     function updateGameStats(difficulty, completionTime) {
         gameStats.gamesPlayed++;
         gameStats.currentStreak++;
-        
         if (!gameStats.bestTimes[difficulty] || completionTime < gameStats.bestTimes[difficulty]) {
             gameStats.bestTimes[difficulty] = completionTime;
             showAchievement(`New ${difficulty} record: ${formatTime(completionTime)}!`);
         }
-        
         checkAchievements();
         localStorage.setItem('sudokuStats', JSON.stringify(gameStats));
     }
-    
     function checkAchievements() {
         const achievements = [
             { id: 'first_win', name: 'First Victory', condition: () => gameStats.gamesPlayed === 1 },
@@ -336,41 +263,27 @@ document.addEventListener('DOMContentLoaded', () => {
             { id: 'streak_5', name: 'Hot Streak', condition: () => gameStats.currentStreak >= 5 },
             { id: 'master_solver', name: 'Master Solver', condition: () => gameStats.bestTimes.Master }
         ];
-        
-        achievements.forEach(achievement => {
-            if (!gameStats.achievements.includes(achievement.id) && achievement.condition()) {
-                gameStats.achievements.push(achievement.id);
-                showAchievement(`Achievement Unlocked: ${achievement.name}!`);
+        achievements.forEach(a => {
+            if (!gameStats.achievements.includes(a.id) && a.condition()) {
+                gameStats.achievements.push(a.id);
+                showAchievement(`Achievement Unlocked: ${a.name}!`);
             }
         });
     }
-
     function showAchievement(message) {
-        const achievement = document.createElement('div');
-        achievement.className = 'achievement-toast';
-        achievement.textContent = message;
-        document.body.appendChild(achievement);
-        
-        setTimeout(() => {
-            achievement.classList.add('show');
-        }, 100);
-        
-        setTimeout(() => {
-            achievement.classList.remove('show');
-            setTimeout(() => {
-                if (document.body.contains(achievement)) {
-                    document.body.removeChild(achievement);
-                }
-            }, 300);
-        }, 3000);
+        const el = document.createElement('div');
+        el.className = 'achievement-toast';
+        el.textContent = message;
+        document.body.appendChild(el);
+        setTimeout(() => el.classList.add('show'), 100);
+        setTimeout(() => { el.classList.remove('show'); setTimeout(() => { if (document.body.contains(el)) document.body.removeChild(el); }, 300); }, 3000);
     }
 
     function showCelebration(completionTime) {
         stopTimer();
-        
-        const celebration = document.createElement('div');
-        celebration.className = 'celebration-overlay';
-        celebration.innerHTML = `
+        const overlay = document.createElement('div');
+        overlay.className = 'celebration-overlay';
+        overlay.innerHTML = `
             <div class="celebration-content">
                 <div class="celebration-icon">🎉</div>
                 <h2>Puzzle Solved!</h2>
@@ -383,17 +296,10 @@ document.addEventListener('DOMContentLoaded', () => {
                 <p class="next-puzzle-text">Next puzzle loading...</p>
             </div>
         `;
-        document.body.appendChild(celebration);
-        
+        document.body.appendChild(overlay);
         createConfetti();
-        
-        setTimeout(() => {
-            if (document.body.contains(celebration)) {
-                document.body.removeChild(celebration);
-            }
-        }, 3000);
+        setTimeout(() => { if (document.body.contains(overlay)) document.body.removeChild(overlay); }, 3000);
     }
-    
     function createConfetti() {
         for (let i = 0; i < 50; i++) {
             const confetti = document.createElement('div');
@@ -402,12 +308,7 @@ document.addEventListener('DOMContentLoaded', () => {
             confetti.style.animationDelay = Math.random() * 3 + 's';
             confetti.style.backgroundColor = `hsl(${Math.random() * 360}, 70%, 60%)`;
             document.body.appendChild(confetti);
-            
-            setTimeout(() => {
-                if (document.body.contains(confetti)) {
-                    document.body.removeChild(confetti);
-                }
-            }, 3000);
+            setTimeout(() => { if (document.body.contains(confetti)) document.body.removeChild(confetti); }, 3000);
         }
     }
 
@@ -415,54 +316,39 @@ document.addEventListener('DOMContentLoaded', () => {
         stopTimer();
         gameTimer = 0;
         document.querySelector('.timer-display').textContent = '00:00';
-        
         currentDifficulty = difficulty;
-        
         document.querySelectorAll('.difficulty-btn').forEach(btn => {
             btn.classList.toggle('active', btn.dataset.difficulty === difficulty);
         });
-        
         clearGame();
-        
         const puzzleData = generatePuzzle(difficulty);
         sudokuSolution = puzzleData.sudokuSolution;
         sudokuGrid = puzzleData.sudokuBoard.map(row => [...row]);
-        
         loadGameWithData(puzzleData);
     }
 
     function clearGame() {
         editableCells.clear();
         Object.keys(displayedNumbers).forEach(key => delete displayedNumbers[key]);
-        
+
         numbersGroup.children.slice().forEach(child => {
             numbersGroup.remove(child);
-            child.traverse((node) => {
-                if (node.isMesh) {
-                    node.geometry.dispose();
-                    node.material.dispose();
-                }
-            });
+            child.traverse((node) => { if (node.isMesh) { node.geometry.dispose(); node.material.dispose(); } });
         });
-        
         notesGroup.children.slice().forEach(child => {
             notesGroup.remove(child);
-            child.traverse((node) => {
-                if (node.isMesh) {
-                    node.geometry.dispose();
-                    node.material.dispose();
-                }
-            });
+            child.traverse((node) => { if (node.isMesh) { node.geometry.dispose(); node.material.dispose(); } });
         });
-        
+
+        // Reset each cell to its base (non-given) color for its subgrid.
         cellsGroup.children.forEach(cell => {
-            cell.traverse(child => {
-                if (child.isMesh) {
-                    child.material.color.setHex(COLORS.DEFAULT_CELL);
-                }
-            });
+            const name = cell.name || '';
+            const parts = name.split('_'); // "Sub_5_Cell_2_3"
+            const subgrid = parseInt(parts[1], 10);
+            const baseColor = getBaseCellColorFor(subgrid, false);
+            cell.traverse(child => { if (child.isMesh) child.material.color.setHex(baseColor); });
         });
-        
+
         selectedCell = null;
     }
 
@@ -470,59 +356,40 @@ document.addEventListener('DOMContentLoaded', () => {
         const subGrid = parseInt(cellName.split('_')[1]) - 1;
         const cellRow = parseInt(cellName.split('_')[3]) - 1;
         const cellCol = parseInt(cellName.split('_')[4]) - 1;
-        
         const gridRow = Math.floor(subGrid / 3) * 3;
         const gridCol = (subGrid % 3) * 3;
-        
-        return {
-            row: gridRow + cellRow,
-            col: gridCol + cellCol,
-            subGrid: subGrid + 1
-        };
+        return { row: gridRow + cellRow, col: gridCol + cellCol, subGrid: subGrid + 1 };
     }
 
     function getRelatedCells(cellName) {
         const coords = getCellCoordinates(cellName);
         const related = new Set();
-        
-        // Get all cells in the same row
         for (let col = 0; col < 9; col++) {
             const subGrid = Math.floor(coords.row / 3) * 3 + Math.floor(col / 3) + 1;
-            const cellInRow = `Sub_${subGrid}_Cell_${(coords.row % 3) + 1}_${(col % 3) + 1}`;
-            related.add(cellInRow);
+            related.add(`Sub_${subGrid}_Cell_${(coords.row % 3) + 1}_${(col % 3) + 1}`);
         }
-        
-        // Get all cells in the same column
         for (let row = 0; row < 9; row++) {
             const subGrid = Math.floor(row / 3) * 3 + Math.floor(coords.col / 3) + 1;
-            const cellInCol = `Sub_${subGrid}_Cell_${(row % 3) + 1}_${(coords.col % 3) + 1}`;
-            related.add(cellInCol);
+            related.add(`Sub_${subGrid}_Cell_${(row % 3) + 1}_${(coords.col % 3) + 1}`);
         }
-        
-        // Get all cells in the same 3x3 square
-        const squareStartRow = Math.floor(coords.row / 3) * 3;
-        const squareStartCol = Math.floor(coords.col / 3) * 3;
-        for (let r = 0; r < 3; r++) {
-            for (let c = 0; c < 3; c++) {
-                const row = squareStartRow + r;
-                const col = squareStartCol + c;
-                const subGrid = Math.floor(row / 3) * 3 + Math.floor(col / 3) + 1;
-                const cellInSquare = `Sub_${subGrid}_Cell_${(row % 3) + 1}_${(col % 3) + 1}`;
-                related.add(cellInSquare);
-            }
+        const sr = Math.floor(coords.row / 3) * 3;
+        const sc = Math.floor(coords.col / 3) * 3;
+        for (let r = 0; r < 3; r++) for (let c = 0; c < 3; c++) {
+            const row = sr + r, col = sc + c;
+            const subGrid = Math.floor(row / 3) * 3 + Math.floor(col / 3) + 1;
+            related.add(`Sub_${subGrid}_Cell_${(row % 3) + 1}_${(col % 3) + 1}`);
         }
-        
         return Array.from(related);
     }
 
     function highlightRelatedCells(cellName, highlight = true) {
         const relatedCells = getRelatedCells(cellName);
         relatedCells.forEach(relatedCell => {
-            if (relatedCell !== cellName) {  // Don't change the selected cell's color
+            if (relatedCell !== cellName) {
                 const cellData = displayedNumbers[relatedCell];
-                if (!cellData?.isGiven) {  // Don't highlight given cells
-                    colorCell(relatedCell.split('_')[1], relatedCell, 
-                        highlight ? COLORS.RELATED_CELL : COLORS.DEFAULT_CELL);
+                if (!cellData?.isGiven) {
+                    const subgrid = parseInt(relatedCell.split('_')[1], 10);
+                    colorCell(subgrid, relatedCell, highlight ? COLORS.RELATED_CELL : getBaseCellColorFor(subgrid, false));
                 }
             }
         });
@@ -532,108 +399,122 @@ document.addEventListener('DOMContentLoaded', () => {
         const relatedCells = getRelatedCells(cellName);
         relatedCells.forEach(relatedCell => {
             if (editableCells.has(relatedCell)) {
-                // Remove the placed number from notes in related cells
                 const noteFile = `New_Number_${placedNumber}`;
                 const fullNoteName = `${relatedCell}_${noteFile}`;
                 const model = notesGroup.getObjectByName(fullNoteName);
                 if (model) {
                     notesGroup.remove(model);
-                    model.traverse((child) => {
-                        if (child.isMesh) {
-                            child.geometry.dispose();
-                            child.material.dispose();
-                        }
-                    });
+                    model.traverse((child) => { if (child.isMesh) { child.geometry.dispose(); child.material.dispose(); } });
                 }
             }
         });
     }
+
+    // UI "golf ball" (unchanged)
+    window.createUIGolfBall = function() {
+        const existingGolfBall = document.getElementById('ui-golf-ball');
+        if (existingGolfBall) existingGolfBall.remove();
+        const golfBall = document.createElement('div');
+        golfBall.id = 'ui-golf-ball';
+        golfBall.style.cssText = `
+            position: fixed; bottom: 80px; right: 30px; width: 60px; height: 60px;
+            background: radial-gradient(circle at 30% 30%, #4a90e2, #2563eb, #1e40af);
+            border-radius: 50%; z-index: 9999; cursor: grab;
+            border: 4px solid rgba(255, 255, 255, 0.8);
+            box-shadow: 0 0 30px rgba(37,99,235,1.0), 0 8px 16px rgba(37,99,235,0.5),
+                        inset -3px -3px 6px rgba(0,0,0,0.3), inset 3px 3px 6px rgba(255,255,255,0.4);
+            opacity: 1; visibility: visible; display: block; pointer-events: auto;
+            touch-action: none; user-select: none;
+        `;
+        const canvas = document.querySelector('canvas');
+        window.rotateTorusCamera = function(deltaX, deltaY) {
+            if (canvas) {
+                const rect = canvas.getBoundingClientRect();
+                const centerX = rect.left + rect.width / 2;
+                const centerY = rect.top + rect.height / 2;
+                const md = new MouseEvent('mousedown', { clientX: centerX, clientY: centerY, button: 0, bubbles: true });
+                const mm = new MouseEvent('mousemove', { clientX: centerX + deltaX, clientY: centerY + deltaY, button: 0, bubbles: true });
+                const mu = new MouseEvent('mouseup',   { clientX: centerX + deltaX, clientY: centerY + deltaY, button: 0, bubbles: true });
+                canvas.dispatchEvent(md);
+                setTimeout(() => { canvas.dispatchEvent(mm); setTimeout(() => canvas.dispatchEvent(mu), 10); }, 10);
+                return true;
+            }
+            return false;
+        };
+        let isDragging = false, lastMouseX = 0, lastMouseY = 0;
+        golfBall.addEventListener('mousedown', function(e) {
+            isDragging = true; lastMouseX = e.clientX; lastMouseY = e.clientY; this.style.cursor = 'grabbing'; e.preventDefault();
+        });
+        document.addEventListener('mousemove', function(e) {
+            if (!isDragging) return;
+            const dx = e.clientX - lastMouseX, dy = e.clientY - lastMouseY;
+            if (window.rotateTorusCamera) window.rotateTorusCamera(dx * 2, dy * 2);
+            lastMouseX = e.clientX; lastMouseY = e.clientY;
+        });
+        document.addEventListener('mouseup', function() { if (isDragging) { isDragging = false; golfBall.style.cursor = 'grab'; }});
+        golfBall.addEventListener('touchstart', function(e) {
+            isDragging = true; const t = e.touches[0]; lastMouseX = t.clientX; lastMouseY = t.clientY; e.preventDefault();
+        });
+        document.addEventListener('touchmove', function(e) {
+            if (!isDragging) return;
+            const t = e.touches[0]; const dx = t.clientX - lastMouseX; const dy = t.clientY - lastMouseY;
+            if (window.rotateTorusCamera) window.rotateTorusCamera(dx * 2, dy * 2);
+            lastMouseX = t.clientX; lastMouseY = t.clientY; e.preventDefault();
+        });
+        document.addEventListener('touchend', function() { isDragging = false; });
+        document.body.appendChild(golfBall);
+        console.log('Blue trackball golf ball successfully added to UI button section with touch controls');
+    };
 
     function eraseCell(cellName) {
         const cellData = displayedNumbers[cellName];
         if (!cellData || cellData.isGiven) return;
-        
-        // Remove regular number
         removeOldNumber(cellName);
-        
-        // Remove all additional numbers in the cell
         const notesToRemove = [];
-        notesGroup.children.forEach(note => {
-            if (note.name.startsWith(cellName)) {
-                notesToRemove.push(note);
-            }
-        });
-        
+        notesGroup.children.forEach(note => { if (note.name.startsWith(cellName)) notesToRemove.push(note); });
         notesToRemove.forEach(note => {
             notesGroup.remove(note);
-            note.traverse((child) => {
-                if (child.isMesh) {
-                    child.geometry.dispose();
-                    child.material.dispose();
-                }
-            });
+            note.traverse((child) => { if (child.isMesh) { child.geometry.dispose(); child.material.dispose(); } });
         });
-
-        // Update game state
         const coords = getCellCoordinates(cellName);
         sudokuGrid[coords.row][coords.col] = null;
     }
-    // Load game data
-    Promise.all([
-        fetch('partsList.json').then(response => response.json())
-    ]).then(([partsListData]) => {
+
+    // Load parts and start
+    Promise.all([ fetch('partsList.json').then(r => r.json()) ])
+      .then(([partsListData]) => {
         const { borders, cells } = partsListData;
 
-        // Load borders
         borders.forEach(border => {
             loader.load(`assets/Borders/${border}.gltf`, (gltf) => {
-                const part = gltf.scene;
-                part.name = border;
-                bordersGroup.add(part);
+                const part = gltf.scene; part.name = border; bordersGroup.add(part);
             });
         });
 
-        // Load cells
+        // When loading cells, set material to the base NON-GIVEN color for each subgrid
         cells.forEach(cell => {
             loader.load(`assets/Cells/${cell}.gltf`, (gltf) => {
-                const part = gltf.scene;
-                part.name = cell;
+                const part = gltf.scene; part.name = cell;
                 part.traverse((child) => {
                     if (child.isMesh) {
-                        child.material = new THREE.MeshLambertMaterial({ color: COLORS.DEFAULT_CELL });
+                        const subgrid = parseInt(cell.split('_')[1], 10);
+                        const baseColor = getBaseCellColorFor(subgrid, false);
+                        child.material = new THREE.MeshLambertMaterial({ color: baseColor });
                     }
                 });
                 cellsGroup.add(part);
             });
         });
 
-        // Load decorative golf ball
-        loader.load('assets/Foam Golf Ball - Foam Golf Ball.gltf', (gltf) => {
-            const golfBall = gltf.scene;
-            golfBall.name = 'decorative_golf_ball';
-            
-            golfBall.position.set(2, 1.5, 0.5);
-            
-            golfBall.traverse((child) => {
-                if (child.isMesh) {
-                    child.material = new THREE.MeshLambertMaterial({ color: 0xFFFFFF });
-                }
-            });
-            
-            decorativeGroup.add(golfBall);
-        }, undefined, (error) => {
-            console.warn('Golf ball model failed to load:', error);
-        });
-
         setTimeout(() => {
             startNewGame('Beginner');
+            setTimeout(() => { if (typeof window.createUIGolfBall === 'function') window.createUIGolfBall(); }, 500);
         }, 1000);
     }).catch(error => console.error('Error loading game data:', error));
 
     function loadGameWithData(gameData) {
         const { sudokuBoard } = gameData;
-        
-        fetch('partsList.json').then(response => response.json()).then(partsListData => {
+        fetch('partsList.json').then(r => r.json()).then(partsListData => {
             const { cells } = partsListData;
             setupSudokuMechanics(cells, sudokuBoard);
         });
@@ -645,37 +526,29 @@ document.addEventListener('DOMContentLoaded', () => {
                 const subGrid = Math.floor(rowIndex / 3) * 3 + Math.floor(colIndex / 3) + 1;
                 const cellName = `Sub_${subGrid}_Cell_${(rowIndex % 3) + 1}_${(colIndex % 3) + 1}`;
                 const cellCoords = `${(rowIndex % 3) + 1}_${(colIndex % 3) + 1}`;
-                
+
                 if (cell !== 0) {
-                    // Load given numbers
+                    // GIVEN number: keep numbers red, cell darker shade for that subgrid
                     const numberFile = `Number_${cell}`;
                     const numberPath = `assets/Numbers/${subGrid}/Cell_${cellCoords}/${numberFile}.gltf`;
-                    
                     loader.load(numberPath, (gltf) => {
                         const part = gltf.scene;
                         part.name = `${cellName}_${numberFile}`;
                         part.traverse((child) => {
                             if (child.isMesh) {
-                                child.material = new THREE.MeshLambertMaterial({ color: COLORS.GIVEN_NUMBER });
+                                child.material = new THREE.MeshLambertMaterial({ color: getNumberColor(true) }); // red
                             }
                         });
                         numbersGroup.add(part);
                     });
 
-                    colorCell(subGrid, cellName, COLORS.GIVEN_CELL);
-                    displayedNumbers[cellName] = {
-                        number: cell,
-                        modelName: `${cellName}_${numberFile}`,
-                        isGiven: true
-                    };
+                    colorCell(subGrid, cellName, getBaseCellColorFor(subGrid, true));
+                    displayedNumbers[cellName] = { number: cell, modelName: `${cellName}_${numberFile}`, isGiven: true };
                 } else {
+                    // EDITABLE cell: base (lighter) shade for that subgrid
                     editableCells.add(cellName);
-                    colorCell(subGrid, cellName, COLORS.DEFAULT_CELL);
-                    displayedNumbers[cellName] = {
-                        number: null,
-                        modelName: null,
-                        isGiven: false
-                    };
+                    colorCell(subGrid, cellName, getBaseCellColorFor(subGrid, false));
+                    displayedNumbers[cellName] = { number: null, modelName: null, isGiven: false };
                 }
             });
         });
@@ -683,48 +556,36 @@ document.addEventListener('DOMContentLoaded', () => {
 
     function colorCell(subGrid, cellName, color) {
         const targetCell = cellsGroup.getObjectByName(cellName);
-        if (targetCell) {
-            targetCell.traverse(child => {
-                if (child.isMesh) {
-                    child.material.color.setHex(color);
-                }
-            });
-        }
+        if (targetCell) targetCell.traverse(child => { if (child.isMesh) child.material.color.setHex(color); });
     }
 
     function removeOldNumber(cellName) {
         const cellData = displayedNumbers[cellName];
         if (!cellData || cellData.isGiven) return;
-        
         if (cellData.modelName) {
             const model = numbersGroup.getObjectByName(cellData.modelName);
             if (model) {
                 numbersGroup.remove(model);
-                model.traverse((child) => {
-                    if (child.isMesh) {
-                        child.geometry.dispose();
-                        child.material.dispose();
-                    }
-                });
+                model.traverse((child) => { if (child.isMesh) { child.geometry.dispose(); child.material.dispose(); } });
             }
             cellData.number = null;
             cellData.modelName = null;
         }
     }
+
     function inputNumber(number) {
         if (!selectedCell || !editableCells.has(selectedCell.cellName)) return;
-        
         startTimer();
-        
+
         const cellData = displayedNumbers[selectedCell.cellName];
         if (!cellData || cellData.isGiven) return;
 
         const { subGrid, cellName } = selectedCell;
         const cellCoords = `${cellName.split('_')[3]}_${cellName.split('_')[4]}`;
-        
+
         if (currentInputMode === "numbers") {
-            const validationCoords = getCellCoordinates(cellName);
-            if (!isValidSudokuMove(sudokuGrid, validationCoords.row, validationCoords.col, number)) {
+            const v = getCellCoordinates(cellName);
+            if (!isValidSudokuMove(sudokuGrid, v.row, v.col, number)) {
                 const invalidFeedback = document.createElement('div');
                 invalidFeedback.className = 'invalid-move-toast';
                 invalidFeedback.textContent = 'Invalid move! Number already exists in row, column, or box.';
@@ -737,106 +598,68 @@ document.addEventListener('DOMContentLoaded', () => {
                     transform: translateX(100%); transition: transform 0.3s ease;
                 `;
                 document.body.appendChild(invalidFeedback);
-                
                 setTimeout(() => invalidFeedback.style.transform = 'translateX(0)', 100);
                 setTimeout(() => {
                     invalidFeedback.style.transform = 'translateX(100%)';
                     setTimeout(() => document.body.removeChild(invalidFeedback), 300);
                 }, 2000);
-                
-                return; // Don't place the number
+                return;
             }
-            
-            // Remove old number first
+
+            // Clear old number & notes
             removeOldNumber(cellName);
-            
-            // Remove all additional numbers in the cell
             const notesToRemove = [];
-            notesGroup.children.forEach(note => {
-                if (note.name.startsWith(cellName)) {
-                    notesToRemove.push(note);
-                }
-            });
-            
+            notesGroup.children.forEach(note => { if (note.name.startsWith(cellName)) notesToRemove.push(note); });
             notesToRemove.forEach(note => {
                 notesGroup.remove(note);
-                note.traverse((child) => {
-                    if (child.isMesh) {
-                        child.geometry.dispose();
-                        child.material.dispose();
-                    }
-                });
+                note.traverse((child) => { if (child.isMesh) { child.geometry.dispose(); child.material.dispose(); } });
             });
-            
+
+            // Add new number (player): keep black
             const numberFile = `Number_${number}`;
             const numberPath = `assets/Numbers/${subGrid}/Cell_${cellCoords}/${numberFile}.gltf`;
-            
             loader.load(numberPath, (gltf) => {
                 const part = gltf.scene;
                 part.name = `${cellName}_${numberFile}`;
                 part.traverse((child) => {
-                    if (child.isMesh) {
-                        child.material = new THREE.MeshLambertMaterial({ color: COLORS.PLAYER_NUMBER });
-                    }
+                    if (child.isMesh) child.material = new THREE.MeshLambertMaterial({ color: getNumberColor(false) }); // black
                 });
                 numbersGroup.add(part);
             });
+            displayedNumbers[cellName] = { ...displayedNumbers[cellName], number, modelName: `${cellName}_${numberFile}` };
 
-            displayedNumbers[cellName] = {
-                ...displayedNumbers[cellName],
-                number: number,
-                modelName: `${cellName}_${numberFile}`
-            };
-
-            // Update sudoku grid
+            // Update grid and notes
             const coords = getCellCoordinates(cellName);
             sudokuGrid[coords.row][coords.col] = number;
-
-            // Update automatic notes
             updateAutomaticNotes(cellName, number);
 
-            // Check if puzzle is solved
             if (checkSolution()) {
                 const completionTime = gameTimer;
                 updateGameStats(currentDifficulty, completionTime);
                 showCelebration(completionTime);
-                
-                setTimeout(() => {
-                    startNewGame(currentDifficulty);
-                }, 3000);
+                setTimeout(() => startNewGame(currentDifficulty), 3000);
             }
         } else {
-            // First remove any regular number if it exists
+            // Notes mode: still keep notes in player color (black)
             if (displayedNumbers[cellName].number !== null) {
                 removeOldNumber(cellName);
                 const coords = getCellCoordinates(cellName);
                 sudokuGrid[coords.row][coords.col] = null;
             }
-
-            // Handle helper numbers
             const noteFile = `New_Number_${number}`;
             const notePath = `assets/AdditionalNumbers/${subGrid}/Cell_${cellCoords}/${noteFile}.gltf`;
             const fullNoteName = `${cellName}_${noteFile}`;
 
             if (notesGroup.getObjectByName(fullNoteName)) {
-                // Remove if exists
                 const model = notesGroup.getObjectByName(fullNoteName);
                 notesGroup.remove(model);
-                model.traverse((child) => {
-                    if (child.isMesh) {
-                        child.geometry.dispose();
-                        child.material.dispose();
-                    }
-                });
+                model.traverse((child) => { if (child.isMesh) { child.geometry.dispose(); child.material.dispose(); } });
             } else {
-                // Add new helper number
                 loader.load(notePath, (gltf) => {
                     const part = gltf.scene;
                     part.name = fullNoteName;
                     part.traverse((child) => {
-                        if (child.isMesh) {
-                            child.material = new THREE.MeshLambertMaterial({ color: COLORS.PLAYER_NUMBER });
-                        }
+                        if (child.isMesh) child.material = new THREE.MeshLambertMaterial({ color: getNumberColor(false) }); // black
                     });
                     notesGroup.add(part);
                 });
@@ -844,99 +667,127 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     }
 
-    // Updated pointer event handling for both mouse and touch
+    // Pointer picking
     function onPointerEvent(event) {
-        // Prevent default touch behaviors
         event.preventDefault();
-
-        // Get position from either mouse or touch event
         const pointer = event.touches ? event.touches[0] : event;
         const mouse = new THREE.Vector2();
-        
-        // Get the correct coordinates
         const rect = renderer.domElement.getBoundingClientRect();
         mouse.x = ((pointer.clientX - rect.left) / rect.width) * 2 - 1;
         mouse.y = -((pointer.clientY - rect.top) / rect.height) * 2 + 1;
 
         const raycaster = new THREE.Raycaster();
         raycaster.setFromCamera(mouse, camera);
-
         const intersects = raycaster.intersectObjects(cellsGroup.children, true);
         if (intersects.length > 0) {
             const intersected = intersects[0].object;
             const cellName = intersected.parent.name;
 
             if (editableCells.has(cellName)) {
-                // Reset previous highlighting
+                // Unselect previous
                 if (selectedCell) {
                     highlightRelatedCells(selectedCell.cellName, false);
-                    colorCell(selectedCell.subGrid, selectedCell.cellName, 
-                        displayedNumbers[selectedCell.cellName].isGiven ? COLORS.GIVEN_CELL : COLORS.DEFAULT_CELL);
+                    const prevSubgrid = parseInt(selectedCell.subGrid, 10);
+                    const prevIsGiven = !!displayedNumbers[selectedCell.cellName]?.isGiven;
+                    colorCell(prevSubgrid, selectedCell.cellName, getBaseCellColorFor(prevSubgrid, prevIsGiven));
                 }
-                
-                selectedCell = { 
-                    subGrid: cellName.split('_')[1], 
-                    cellName 
-                };
-                
-                // Highlight new selection and related cells
-                colorCell(selectedCell.subGrid, selectedCell.cellName, COLORS.SELECTED_CELL);
-                highlightRelatedCells(selectedCell.cellName, true);
+                // Select new
+                const subGrid = cellName.split('_')[1];
+                selectedCell = { subGrid, cellName };
+                colorCell(parseInt(subGrid,10), cellName, COLORS.SELECTED_CELL);
+                highlightRelatedCells(cellName, true);
             }
         }
     }
 
-    // Event Listeners
     renderer.domElement.addEventListener('click', onPointerEvent);
     renderer.domElement.addEventListener('touchstart', onPointerEvent, { passive: false });
 
-    // Prevent unwanted touch behaviors
-    document.addEventListener('touchmove', (e) => {
-        if (e.touches.length === 1) e.preventDefault();
-    }, { passive: false });
-
-    document.addEventListener('touchstart', (e) => {
-        if (e.touches.length === 1) e.preventDefault();
-    }, { passive: false });
+    document.addEventListener('touchmove', (e) => { if (e.touches.length === 1) e.preventDefault(); }, { passive: false });
+    document.addEventListener('touchstart', (e) => { if (e.touches.length === 1) e.preventDefault(); }, { passive: false });
 
     window.addEventListener('keypress', (event) => {
         const key = event.key;
-        if (selectedCell && key >= '1' && key <= '9') {
-            inputNumber(parseInt(key));
-        }
+        if (selectedCell && key >= '1' && key <= '9') inputNumber(parseInt(key));
     });
 
     document.querySelectorAll('.difficulty-btn').forEach(btn => {
-        btn.addEventListener('click', () => {
-            const difficulty = btn.dataset.difficulty;
-            startNewGame(difficulty);
-        });
+        btn.addEventListener('click', () => startNewGame(btn.dataset.difficulty));
     });
+    fab.addEventListener('click', () => startNewGame(currentDifficulty));
 
-    fab.addEventListener('click', () => {
-        startNewGame(currentDifficulty);
-    });
-
+    // Resize
     window.addEventListener('resize', () => {
         const newScaleFactor = window.innerWidth < 768 ? 6.5 : 5;
         cellsGroup.scale.set(newScaleFactor, newScaleFactor, newScaleFactor);
         bordersGroup.scale.set(newScaleFactor, newScaleFactor, newScaleFactor);
         numbersGroup.scale.set(newScaleFactor, newScaleFactor, newScaleFactor);
         notesGroup.scale.set(newScaleFactor, newScaleFactor, newScaleFactor);
-        decorativeGroup.scale.set(newScaleFactor * 0.3, newScaleFactor * 0.3, newScaleFactor * 0.3);
-        
+
         camera.aspect = (window.innerWidth * 0.7) / window.innerHeight;
         camera.updateProjectionMatrix();
         renderer.setSize(window.innerWidth * 0.7, window.innerHeight);
         controls.handleResize();
     });
 
-    // Animation Loop
+    // Loop
     function animate() {
         requestAnimationFrame(animate);
         controls.update();
         renderer.render(scene, camera);
     }
-
     animate();
+
+    if (typeof window.createUIGolfBall === 'function') window.createUIGolfBall();
 });
+
+// Fallback golf ball
+setTimeout(() => {
+    if (!document.getElementById('ui-golf-ball')) {
+        const golfBall = document.createElement('div');
+        golfBall.id = 'ui-golf-ball';
+        golfBall.style.cssText = `
+            position: fixed; bottom: 80px; right: 30px; width: 60px; height: 60px;
+            background: radial-gradient(circle at 30% 30%, #4a90e2, #2563eb, #1e40af);
+            border-radius: 50%; z-index: 9999; cursor: grab;
+            border: 4px solid rgba(255, 255, 255, 0.8);
+            box-shadow: 0 0 30px rgba(37, 99, 235, 1.0), 0 8px 16px rgba(37, 99, 235, 0.5),
+                        inset -3px -3px 6px rgba(0, 0, 0, 0.3), inset 3px 3px 6px rgba(255, 255, 255, 0.4);
+            opacity: 1; visibility: visible; display: block; pointer-events: auto; touch-action: none; user-select: none;
+        `;
+        const canvas = document.querySelector('canvas');
+        let isDragging = false, lastMouseX = 0, lastMouseY = 0;
+        golfBall.addEventListener('mousedown', function(e) {
+            isDragging = true; lastMouseX = e.clientX; lastMouseY = e.clientY; this.style.cursor = 'grabbing'; e.preventDefault();
+        });
+        document.addEventListener('mousemove', function(e) {
+            if (!isDragging || !canvas) return;
+            const dx = e.clientX - lastMouseX, dy = e.clientY - lastMouseY;
+            const rect = canvas.getBoundingClientRect();
+            const cx = rect.left + rect.width / 2, cy = rect.top + rect.height / 2;
+            const md = new MouseEvent('mousedown', { clientX: cx, clientY: cy, button: 0, bubbles: true });
+            const mm = new MouseEvent('mousemove', { clientX: cx + dx * 2, clientY: cy + dy * 2, button: 0, bubbles: true });
+            const mu = new MouseEvent('mouseup',   { clientX: cx + dx * 2, clientY: cy + dy * 2, button: 0, bubbles: true });
+            canvas.dispatchEvent(md); setTimeout(() => { canvas.dispatchEvent(mm); setTimeout(() => canvas.dispatchEvent(mu), 10); }, 10);
+            lastMouseX = e.clientX; lastMouseY = e.clientY;
+        });
+        document.addEventListener('mouseup', function() { if (isDragging) { isDragging = false; golfBall.style.cursor = 'grab'; }});
+        golfBall.addEventListener('touchstart', function(e) {
+            isDragging = true; const t = e.touches[0]; lastMouseX = t.clientX; lastMouseY = t.clientY; e.preventDefault();
+        });
+        document.addEventListener('touchmove', function(e) {
+            if (!isDragging || !canvas) return;
+            const t = e.touches[0]; const dx = t.clientX - lastMouseX; const dy = t.clientY - lastMouseY;
+            const rect = canvas.getBoundingClientRect();
+            const cx = rect.left + rect.width / 2, cy = rect.top + rect.height / 2;
+            const md = new MouseEvent('mousedown', { clientX: cx, clientY: cy, button: 0, bubbles: true });
+            const mm = new MouseEvent('mousemove', { clientX: cx + dx * 2, clientY: cy + dy * 2, button: 0, bubbles: true });
+            const mu = new MouseEvent('mouseup',   { clientX: cx + dx * 2, clientY: cy + dy * 2, button: 0, bubbles: true });
+            canvas.dispatchEvent(md); setTimeout(() => { canvas.dispatchEvent(mm); setTimeout(() => canvas.dispatchEvent(mu), 10); }, 10);
+            lastMouseX = t.clientX; lastMouseY = t.clientY; e.preventDefault();
+        });
+        document.addEventListener('touchend', function() { isDragging = false; });
+        document.body.appendChild(golfBall);
+        console.log('Fallback golf ball with trackball functionality created successfully');
+    }
+}, 1000);
